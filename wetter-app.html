@@ -168,6 +168,35 @@ mark{background:none;color:#ffd97a;font-weight:800}
   background:#fff;color:#16305c;
 }
 .err p{color:var(--soft);padding:0 4px}
+/* Pollen */
+.pchips{display:flex;gap:6px;overflow-x:auto;padding:0 2px 10px;scrollbar-width:none}
+.pchips::-webkit-scrollbar{display:none}
+.pchip{flex:none;border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.08);border-radius:999px;padding:7px 14px;font-size:.9rem;cursor:pointer}
+.pchip[aria-pressed=true]{background:#fff;color:#16305c;border-color:#fff;font-weight:600}
+.psum{padding:0 4px 8px;color:var(--soft)}
+.psum b{color:#fff;font-weight:600}
+.plist,.wlist{list-style:none}
+.pol{display:grid;grid-template-columns:1fr auto 104px;align-items:center;gap:10px;padding:10px 4px;border-top:1px solid var(--line)}
+.plist .pol:first-child{border-top:0}
+.pn{font-weight:600}
+.pm{display:flex;gap:3px}
+.pm i{width:14px;height:8px;border-radius:4px;background:rgba(255,255,255,.2)}
+.pm[data-l="1"] .on{background:#8be28f}
+.pm[data-l="2"] .on{background:#f2d75b}
+.pm[data-l="3"] .on{background:#ffa94d}
+.pm[data-l="4"] .on{background:#ff6b6b}
+.pv{text-align:right;font-size:.95rem}
+.pv small{display:block;color:var(--soft);font-size:.78rem}
+/* Gewässer */
+.wr{display:grid;grid-template-columns:38px 1fr auto;align-items:center;gap:12px;padding:11px 4px;border-top:1px solid var(--line)}
+.wlist .wr:first-child{border-top:0}
+.wdot{width:38px;height:38px;border-radius:50%;display:grid;place-items:center}
+.wm{min-width:0}
+.wm b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wm small{display:block;color:var(--soft);font-size:.8rem}
+.wt{font-size:1.45rem;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.fine{font-size:.78rem;color:var(--soft);padding:10px 4px 0;line-height:1.45}
+.soft{color:var(--soft);padding:0 4px}
 .foot{margin-top:26px;text-align:center;font-size:.8rem;color:var(--soft);text-shadow:0 1px 8px rgba(0,0,0,.25)}
 .foot a{color:inherit}
 
@@ -224,7 +253,7 @@ mark{background:none;color:#ffd97a;font-weight:800}
 
   <div id="view" aria-live="polite"></div>
 
-  <p class="foot">Wetterdaten von <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0). Ortssuche mit Open-Meteo, Zippopotam.us und Photon.</p>
+  <p class="foot">Wetter-, Pollen- und Meerestemperaturdaten von <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0). Flusstemperaturen: Wasserstraßen- und Schifffahrtsverwaltung des Bundes (WSV), <a href="https://www.pegelonline.wsv.de/" target="_blank" rel="noopener">PEGELONLINE</a> (dl-de/by-2-0). Ortssuche mit Open-Meteo, Zippopotam.us und Photon.</p>
 </main>
 <noscript><p style="padding:24px;text-align:center">Für die Wetter-App wird JavaScript benötigt.</p></noscript>
 
@@ -486,7 +515,7 @@ async function loadWeather(p){
   try {
     const d = await getJSON(url);
     if (my !== loadSeq) return;
-    render(p, d);
+    render(p, d, my);
   } catch {
     if (my !== loadSeq) return;
     view.innerHTML = `<section class="panel err reveal"><h2>Wetterdaten nicht verfügbar</h2>
@@ -507,7 +536,7 @@ function dayLabel(iso, i){
   return { name: i === 0 ? 'Heute' : i === 1 ? 'Morgen' : long, date: `${short} ${d}.${m}.` };
 }
 
-function render(p, d){
+function render(p, d, my){
   const c = d.current, dl = d.daily, hr = d.hourly;
   const isDay = !!c.is_day, [cond, kind] = wmo(c.weather_code);
   setSky(c.weather_code, isDay);
@@ -567,7 +596,13 @@ function render(p, d){
       <div class="tile"><small>Luftfeuchtigkeit</small><b>${Math.round(c.relative_humidity_2m)} %</b></div>
       <div class="tile"><small>Wind</small><b>${Math.round(c.wind_speed_10m)} km/h</b><span>aus ${dir}</span></div>
       <div class="tile"><small>UV-Index heute</small><b>${Math.round(dl.uv_index_max[0])}</b><span>${uvTxt(dl.uv_index_max[0])}</span></div>
-    </div></div>`;
+    </div>
+    <section class="panel" aria-labelledby="h-pollen"><h2 id="h-pollen">Pollenflug</h2><div id="pollenBody"><p class="soft">Wird geladen …</p></div></section>
+    <section class="panel" aria-labelledby="h-water"><h2 id="h-water">Wassertemperatur in der Nähe</h2><div id="waterBody"><p class="soft">Wird geladen …</p></div></section>
+    </div>`;
+  pollen = null; pollenDay = 0;
+  loadPollen(p, my);
+  loadWater(p, my);
 }
 
 view.addEventListener('click', e => {
@@ -577,9 +612,139 @@ view.addEventListener('click', e => {
     li.classList.toggle('open', open); row.setAttribute('aria-expanded', open);
     return;
   }
+  const pc = e.target.closest('[data-pd]');
+  if (pc){
+    pollenDay = +pc.dataset.pd; renderPollen();
+    const on = view.querySelector('.pchip[aria-pressed=true]'); if (on) on.focus();
+    return;
+  }
   const chip = e.target.closest('[data-lat]');
   if (chip) choose({ title: chip.dataset.name, sub: chip.dataset.sub, lat: +chip.dataset.lat, lon: +chip.dataset.lon, plz: '' });
 });
+
+/* ---------- Pollenflug ---------- */
+const POL = [
+  ['birch_pollen','Birke',[10,50,200]], ['alder_pollen','Erle',[10,50,200]],
+  ['grass_pollen','Gräser',[5,20,50]], ['mugwort_pollen','Beifuß',[5,20,50]],
+  ['ragweed_pollen','Ambrosia',[2,6,20]], ['olive_pollen','Olive',[10,50,200]]
+];
+const LV = ['keine','niedrig','mäßig','hoch','sehr hoch'];
+let pollen = null, pollenDay = 0;
+const levelOf = (v, th) => v == null ? -1 : v < 1 ? 0 : v < th[0] ? 1 : v < th[1] ? 2 : v < th[2] ? 3 : 4;
+
+async function loadPollen(p, my){
+  try {
+    const j = await getJSON('https://air-quality-api.open-meteo.com/v1/air-quality'
+      + `?latitude=${p.lat}&longitude=${p.lon}&hourly=${POL.map(x => x[0]).join(',')}&timezone=auto&forecast_days=5`);
+    if (my !== loadSeq) return;
+    const times = (j.hourly && j.hourly.time) || [];
+    const days = [...new Set(times.map(t => t.slice(0, 10)))].slice(0, 5);
+    const rows = [];
+    for (const [key, name, th] of POL){
+      const arr = (j.hourly && j.hourly[key]) || [];
+      if (!arr.some(v => v != null)) continue;
+      const vals = days.map(dd => {
+        let m = null;
+        times.forEach((t, i) => { if (t.startsWith(dd) && arr[i] != null) m = Math.max(m ?? 0, arr[i]); });
+        return m;
+      });
+      rows.push({ name, th, vals });
+    }
+    pollen = { days, rows };
+    renderPollen();
+  } catch {
+    if (my !== loadSeq) return;
+    const el = document.getElementById('pollenBody');
+    if (el) el.innerHTML = '<p class="soft">Die Pollendaten konnten nicht geladen werden.</p>';
+  }
+}
+function renderPollen(){
+  const el = document.getElementById('pollenBody');
+  if (!el || !pollen) return;
+  if (!pollen.rows.length){
+    el.innerHTML = '<p class="soft">Für diesen Ort liegen keine Pollendaten vor. Sie gibt es nur für Europa und außerhalb der Saison oft nicht.</p>';
+    return;
+  }
+  const d = Math.min(pollenDay, pollen.days.length - 1);
+  const chips = pollen.days.map((iso, i) => {
+    const l = dayLabel(iso, i);
+    return `<button type="button" class="pchip" data-pd="${i}" aria-pressed="${i === d}">${i < 2 ? l.name : esc(l.date.split(' ')[0])}</button>`;
+  }).join('');
+  const rows = pollen.rows.map(r => ({ ...r, v: r.vals[d], L: levelOf(r.vals[d], r.th) })).sort((a, b) => b.L - a.L);
+  const top = rows[0];
+  const sum = top.L <= 0
+    ? 'Es wird keine Pollenbelastung erwartet.'
+    : `Höchste Belastung: <b>${esc(top.name)}</b> (${LV[top.L]})`;
+  const list = rows.map(r => `<li class="pol">
+      <span class="pn">${esc(r.name)}</span>
+      <span class="pm" data-l="${Math.max(r.L, 0)}" aria-hidden="true">${[1,2,3,4].map(k => `<i${k <= r.L ? ' class="on"' : ''}></i>`).join('')}</span>
+      <span class="pv"><b>${r.L < 0 ? '–' : LV[r.L]}</b>${r.L > 0 ? `<small>${nf(r.v, 0)} Körner/m³</small>` : ''}</span>
+    </li>`).join('');
+  el.innerHTML = `<div class="pchips" role="group" aria-label="Tag wählen">${chips}</div>
+    <p class="psum">${sum}</p><ul class="plist">${list}</ul>
+    <p class="fine">Tageshöchstwerte aus Modelldaten (Open-Meteo/CAMS, nur Europa). Die Einstufung folgt groben Richtwerten und ersetzt keine medizinische Beratung.</p>`;
+}
+
+/* ---------- Gewässertemperaturen ---------- */
+const rad = x => x * Math.PI / 180;
+function distKm(la1, lo1, la2, lo2){
+  const a = Math.sin(rad(la2 - la1) / 2) ** 2 + Math.cos(rad(la1)) * Math.cos(rad(la2)) * Math.sin(rad(lo2 - lo1) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(a));
+}
+const titleCase = s => String(s || '').toLowerCase().replace(/(^|[\s\-\/(])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+
+async function fetchRivers(p){
+  const j = await getJSON('https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations.json'
+    + `?latitude=${p.lat}&longitude=${p.lon}&radius=100&timeseries=WT&includeTimeseries=true&includeCurrentMeasurement=true`);
+  const all = (Array.isArray(j) ? j : []).map(st => {
+    const ts = (st.timeseries || []).find(t => t.shortname === 'WT');
+    const m = ts && ts.currentMeasurement;
+    if (!m || typeof m.value !== 'number' || st.latitude == null || st.longitude == null) return null;
+    if (!((Date.now() - new Date(m.timestamp)) / 36e5 < 36)) return null;
+    return { kind: 'river', name: titleCase(st.water && st.water.longname) || 'Gewässer', station: titleCase(st.longname),
+             dist: distKm(p.lat, p.lon, st.latitude, st.longitude), temp: m.value, time: String(m.timestamp).slice(11, 16) };
+  }).filter(Boolean).sort((a, b) => a.dist - b.dist);
+  const per = {}, out = [];
+  for (const r of all){ per[r.name] = (per[r.name] || 0) + 1; if (per[r.name] <= 2) out.push(r); if (out.length >= 6) break; }
+  return out;
+}
+async function fetchSea(p){
+  const j = await getJSON('https://marine-api.open-meteo.com/v1/marine'
+    + `?latitude=${p.lat}&longitude=${p.lon}&hourly=sea_surface_temperature&forecast_days=1&timezone=auto&cell_selection=nearest`);
+  const h = j.hourly || {}, times = h.time || [], vals = h.sea_surface_temperature || [];
+  const nowLocal = new Date(Date.now() + (j.utc_offset_seconds || 0) * 1000).toISOString().slice(0, 13);
+  let i = times.findIndex(t => t.slice(0, 13) === nowLocal);
+  if (i < 0 || vals[i] == null) i = vals.findIndex(v => v != null);
+  if (i < 0 || vals[i] == null) return null;
+  const dist = distKm(p.lat, p.lon, j.latitude, j.longitude);
+  if (!(dist <= 80)) return null;
+  return { kind: 'sea', name: 'Meer', station: 'Küstengewässer', dist, temp: vals[i], time: times[i].slice(11, 16) };
+}
+async function loadWater(p, my){
+  const [rv, sea] = await Promise.allSettled([fetchRivers(p), fetchSea(p)]);
+  if (my !== loadSeq) return;
+  const el = document.getElementById('waterBody');
+  if (!el) return;
+  if (rv.status === 'rejected' && sea.status === 'rejected'){
+    el.innerHTML = '<p class="soft">Die Gewässerdaten konnten nicht geladen werden.</p>'; return;
+  }
+  const list = [...(rv.status === 'fulfilled' ? rv.value : []), ...(sea.status === 'fulfilled' && sea.value ? [sea.value] : [])]
+    .sort((a, b) => a.dist - b.dist);
+  if (!list.length){
+    el.innerHTML = `<p class="soft">In der Nähe wurden keine Messwerte gefunden.</p>
+      <p class="fine">Flusstemperaturen gibt es nur für Deutschland (Umkreis 100 km), Meerestemperaturen nur an Küsten. Seen werden nicht erfasst.</p>`;
+    return;
+  }
+  el.innerHTML = `<ul class="wlist">${list.map(r => {
+    const h = Math.round(210 - Math.min(Math.max(r.temp, 0), 28) / 28 * 185);
+    const dist = r.dist < 1 ? 'unter 1 km' : `${Math.round(r.dist)} km`;
+    return `<li class="wr">
+      <span class="wdot" style="background:hsl(${h} 80% 60% / .26);color:hsl(${h} 90% 82%)"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 3c3 4.2 6 7.4 6 11a6 6 0 0 1-12 0c0-3.6 3-6.8 6-11z"/></svg></span>
+      <span class="wm"><b>${esc(r.name)}</b><small>${esc(r.station)} · ${dist} · ${r.kind === 'river' ? 'gemessen' : 'Modell'} ${esc(r.time)} Uhr</small></span>
+      <span class="wt" style="color:hsl(${h} 90% 84%)">${nf(r.temp, 1)} °C</span></li>`;
+  }).join('')}</ul>
+  <p class="fine">Flüsse: Messwerte der Bundeswasserstraßen (nur Deutschland). Meer: Modelldaten mit grobem Raster. Seen und kleine Gewässer werden nicht erfasst. Baden in Flüssen kann wegen Strömung und Schiffsverkehr gefährlich sein.</p>`;
+}
 
 function renderEmpty(){
   applySky('start', false);
